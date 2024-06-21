@@ -11,18 +11,19 @@ if [[ $EUID -eq 0 ]]; then
 fi
 
 # Get the BigBlueButton version from the release file
-version=$(grep -oP 'BIGBLUEBUTTON_RELEASE=\K.*' /etc/bigbluebutton/bigbluebutton-release)
+version=$(grep -oP 'BIGBLUEBUTTON_RELEASE=\K.*' /etc/bigbluebutton/bigbluebutton-release | tr -d '[:space:]')
 
 # Print the version
 echo "BigBlueButton version: $version"
 
-# Conditional check
+# Check if the version is in the available versions array
 if [[ " ${available_versions[@]} " =~ " ${version} " ]]; then
     echo "Version is $version"
 
     cd streaming-server/
     echo "$(pwd)"
-   # Read the values from the bbb-web.properties file
+
+    # Read the values from the bbb-web.properties file
     BBB_URL=$(grep -oP '(?<=bigbluebutton\.web\.serverURL=).*' /etc/bigbluebutton/bbb-web.properties)
     BBB_URL="${BBB_URL}/bigbluebutton/"
     BBB_SECRET=$(grep -oP '(?<=securitySalt=).*' /etc/bigbluebutton/bbb-web.properties)
@@ -30,13 +31,19 @@ if [[ " ${available_versions[@]} " =~ " ${version} " ]]; then
 
     # Check if .env file exists
     if [[ -f .env ]]; then
-        # Overwrite existing environment variables if they exist
-        sed -i -E "s~^(BBB_URL=).*~\1${BBB_URL}~" .env
-        sed -i -E "s~^(BBB_SECRET=).*~\1${BBB_SECRET}~" .env
-        sed -i -E "s~^(NUMBER_OF_CONCURRENT_STREAMINGS=).*~\1${NUMBER_OF_CONCURRENT_STREAMINGS}~" .env
+        # Ensure we have write permissions
+        if [[ -w .env ]]; then
+            # Overwrite existing environment variables if they exist
+            sed -i -E "s~^(BBB_URL=).*~\1${BBB_URL}~" .env
+            sed -i -E "s~^(BBB_SECRET=).*~\1${BBB_SECRET}~" .env
+            sed -i -E "s~^(NUMBER_OF_CONCURRENT_STREAMINGS=).*~\1${NUMBER_OF_CONCURRENT_STREAMINGS}~" .env
+        else
+            echo "Error: No write permission for .env"
+            exit 1
+        fi
     else
         # Create new .env file
-        echo "BBB_URL=${BBB_URL}" >> .env
+        echo "BBB_URL=${BBB_URL}" > .env
         echo "BBB_SECRET=${BBB_SECRET}" >> .env
         echo "NUMBER_OF_CONCURRENT_STREAMINGS=${NUMBER_OF_CONCURRENT_STREAMINGS}" >> .env
     fi
@@ -51,7 +58,7 @@ if [[ " ${available_versions[@]} " =~ " ${version} " ]]; then
         sudo cp -R /usr/share/meteor/bundle /usr/share/meteor/bbb-html5-original || { echo "Error: Failed to copy bundle"; exit 1; }
 
         # Set ownership of copied files to the current user
-        sudo chown -R $current_user:$current_user /usr/share/meteor/bbb-html5-original
+        sudo chown -R $(whoami):$(whoami) /usr/share/meteor/bbb-html5-original
     else
         echo "bbb-html5-original folder already exists. Skipping copy and ownership changes."
     fi
@@ -118,15 +125,12 @@ if [[ " ${available_versions[@]} " =~ " ${version} " ]]; then
     
     cd ../../
 
-    
-
     if sudo tar -xzvf "$(pwd)"/build/*.tar.gz -C /usr/share/meteor; then
         echo "Files are copied to meteor"
     else
         echo "Error: Failed to copy files to meteor"
         exit 1
     fi
-
 
     # Start bbb-html5 service
     if sudo systemctl start bbb-html5; then
